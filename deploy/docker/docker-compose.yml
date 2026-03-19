@@ -1,0 +1,84 @@
+version: '3.8'
+
+networks:
+  monitor-network:
+    driver: bridge
+volumes:
+  mysql-data:
+  redis-data:
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: monitor-mysql
+    restart: always
+    ports:
+      - "3307:3306"
+    networks:
+      - monitor-network
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./mysql/my.cnf:/etc/mysql/conf.d/my.cnf
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - MYSQL_ROOT_PASSWORD=123456  # 根密码（与后端配置一致）
+      - MYSQL_DATABASE=monitor_tool_commercial   # 数据库名（与sql/init.sql一致）
+      - MYSQL_CHARACTER_SET_SERVER=utf8mb4
+      - TZ=Asia/Shanghai
+    command: --default-authentication-plugin=mysql_native_password
+
+  redis:
+    image: redis:7-alpine
+    container_name: monitor-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - monitor-network
+    volumes:
+      - redis-data:/data
+      - ./redis/redis.conf:/etc/redis/redis.conf
+    command: redis-server /etc/redis/redis.conf --requirepass 123456
+    environment:
+      - TZ=Asia/Shanghai
+
+  backend:
+    build:
+      context: E:\\独立开发项目\\monitor_tool_commercial\\
+      dockerfile: deploy/docker/backend/Dockerfile
+    container_name: monitor-backend
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - monitor-network
+    depends_on:
+      - mysql
+      - redis
+    environment:
+      - TZ=Asia/Shanghai
+        # 环境变量（可覆盖后端config中的配置，生产环境推荐）
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USER=root
+      - DB_PWD=123456
+      - DB_NAME=monitor_tool_commercial
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PWD=123456
+      - APP_ENV=prod  # 生产环境标识
+
+  frontend:
+    build:
+      context: E:\\独立开发项目\\monitor_tool_commercial\\
+      dockerfile: deploy/docker/frontend/Dockerfile
+    container_name: monitor-frontend
+    restart: always
+    ports:
+      - "80:80"
+    networks:
+      - monitor-network
+    depends_on:
+      - backend
+    environment:
+      - TZ=Asia/Shanghai

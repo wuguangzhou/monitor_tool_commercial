@@ -1,0 +1,19 @@
+# Go 编译产物（Windows 下的 exe 必须排除）
+*.exe
+*.exe~
+*.dll
+*.so
+*.out
+# Go 模块依赖（go mod 管理的话，vendor 可选排除）
+/vendor/
+# Go 模块缓存
+go.sum
+# IDE 配置（根据你的编辑器选）
+.idea/
+.vscode/
+*.iml
+# Windows 系统文件
+Thumbs.db
+.DS_Store
+# 日志文件
+*.log
