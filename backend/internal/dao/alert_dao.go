@@ -24,7 +24,7 @@ func CreateAlert(alert *model.Alert) error {
 // 创建告警记录
 //func CreateAlert(alert *model.Alert) error {
 //	// 设置最新的时间（确保记录是最新的）
-//	alert.CreateTime = time.Now()
+//	alert.CreateAt = time.Now()
 //	alert.UpdateTime = time.Now()
 //
 //	// 显示处理SendTime(未发送时设为NULL)
@@ -49,7 +49,7 @@ func CreateAlert(alert *model.Alert) error {
 //			"status":      alert.Status,
 //			"content":     alert.Content,
 //			"send_time":   sendTime,
-//			"create_time": alert.CreateTime,
+//			"create_time": alert.CreateAt,
 //			"update_time": alert.UpdateTime,
 //		}),
 //	}).Create(alert).Error

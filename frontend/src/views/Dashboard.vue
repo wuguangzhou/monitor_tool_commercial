@@ -89,7 +89,7 @@ import {
   Setting,
 } from '@element-plus/icons-vue'
 import { getMonitorList } from '@/api/monitor'
-import { getAlertList } from '@/api/alert'
+import { getAlertConfig, getAlertList } from '@/api/alert'
 
 const router = useRouter()
 
@@ -99,8 +99,8 @@ const normalMonitor = ref(0)
 const downMonitor = ref(0)
 const todayAlert = ref(0)
 const todayRecovery = ref(0)
-const alertConfigRate = ref(85)
-const configCount = ref(12)
+const alertConfigRate = ref(0)
+const configCount = ref(0)
 
 // 最近告警记录
 const recentAlertList = ref([])
@@ -108,6 +108,20 @@ const recentAlertList = ref([])
 // 获取仪表盘数据
 const getDashboardData = async () => {
   try {
+    // 获取当前用户告警配置（仪表盘是“个人视角”，因此已配置人数应为 0/1）
+    try {
+      const cfgRes = await getAlertConfig()
+      const cfg = cfgRes?.data
+      const configured = !!cfg
+      const enabled = configured && Number(cfg?.is_enabled ?? cfg?.isEnabled ?? 0) === 1
+      configCount.value = configured ? 1 : 0
+      alertConfigRate.value = enabled ? 100 : 0
+    } catch (e) {
+      // 未配置/接口失败：按未配置展示
+      configCount.value = 0
+      alertConfigRate.value = 0
+    }
+
     // 获取监控项统计
     const monitorRes = await getMonitorList({ page: 1, size: 1000 })
     const monitorList = monitorRes.data.list || []

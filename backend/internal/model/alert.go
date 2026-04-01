@@ -22,12 +22,16 @@ func (Alert) TableName() string {
 
 // AlertConfig 告警配置模型（用户设置的告警方式，对应alert_config表）
 type AlertConfig struct {
-	Id         int64     `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
-	UserId     int64     `json:"user_id" gorm:"not null;unique"`
-	Email      string    `json:"email" gorm:"size:100;not null"`
-	AlertType  int       `json:"alert_type" gorm:"default:1;"`
-	IsEnabled  int       `json:"is_enabled" gorm:"default:1;"`
-	UpdateTime time.Time `json:"update_time" gorm:"autoUpdateTime;"`
+	Id        int64  `json:"id" gorm:"primary_key;AUTO_INCREMENT"`
+	UserId    int64  `json:"user_id" gorm:"not null;unique"`
+	Email     string `json:"email" gorm:"size:100;not null"`
+	AlertType int    `json:"alert_type" gorm:"default:1;"`
+	IsEnabled int    `json:"is_enabled" gorm:"default:1;"`
+	// 钉钉机器人参数（按用户配置，避免后端硬编码）
+	DingTalkWebhook string    `json:"dingtalk_webhook" gorm:"type:varchar(500);default:null"`
+	DingTalkSecret  string    `json:"dingtalk_secret" gorm:"type:varchar(200);default:null"`
+	DingTalkKeyword string    `json:"dingtalk_keyword" gorm:"type:varchar(50);default:null"`
+	UpdateTime      time.Time `json:"update_time" gorm:"autoUpdateTime;"`
 }
 
 func (AlertConfig) TableName() string {

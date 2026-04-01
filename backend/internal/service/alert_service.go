@@ -95,7 +95,7 @@ func StartAlertCron() {
 	alertOnce.Do(func() {
 		alertCron = cron.New(cron.WithSeconds())
 		alertCron.AddFunc("0 */1 * * * *", func() {
-			SendUnsentAlert()
+			SendPendingAlertTask()
 		})
 		alertCron.Start()
 		fmt.Println("告警发送定时任务已启动")
@@ -110,57 +110,57 @@ func StopAlertCron() {
 	}
 }
 
-func SendUnsentAlert() {
-	//获取未发送的告警
-	alerts, err := dao.GetUnsentAlert()
-	if err != nil {
-		fmt.Printf("GetUnsentAlert err:%v", err)
-		return
-	}
-	if len(alerts) == 0 {
-		return
-	}
-
-	//并发发送告警
-	var wg sync.WaitGroup
-	for _, alert := range alerts {
-		wg.Add(1)
-		go func(alert *model.Alert) {
-			defer wg.Done()
-			//获取用户告警配置
-			config, err := dao.GetAlertConfigByUserId(alert.UserId)
-			if err != nil {
-				fmt.Printf("获取用户%d告警配置失败:%v", alert.UserId, err)
-				err := dao.UpdateMonitorStatus(alert.Id, 2)
-				if err != nil {
-					return
-				} //标记为失败
-				return
-			}
-
-			var sendSuccess bool
-			subject := "【告警】"
-			switch alert.AlertType {
-			case 1: //邮箱
-				sendSuccess, err = alert2.SendEmailAlert(config.Email, subject, alert.Content)
-			case 2: //钉钉
-				sendSuccess, err = alert2.SendDingTalkAlert(fmt.Sprint("监控告警"), alert.Content)
-			default:
-				err = errors.New("不支持的告警方式")
-				sendSuccess = false
-			}
-
-			// 更新告警状态
-			if sendSuccess && err == nil {
-				dao.UpdateAlertStatus(alert.Id, 1) //发送成功
-			} else {
-				dao.UpdateAlertStatus(alert.Id, 2) //发送失败
-				fmt.Printf("告警%d发送失败：:%v\n", alert.UserId, err)
-			}
-		}(alert)
-	}
-	wg.Wait()
-}
+//func SendUnsentAlert() {
+//	//获取未发送的告警
+//	alerts, err := dao.GetUnsentAlert()
+//	if err != nil {
+//		fmt.Printf("GetUnsentAlert err:%v", err)
+//		return
+//	}
+//	if len(alerts) == 0 {
+//		return
+//	}
+//
+//	//并发发送告警
+//	var wg sync.WaitGroup
+//	for _, alert := range alerts {
+//		wg.Add(1)
+//		go func(alert *model.Alert) {
+//			defer wg.Done()
+//			//获取用户告警配置
+//			config, err := dao.GetAlertConfigByUserId(alert.UserId)
+//			if err != nil {
+//				fmt.Printf("获取用户%d告警配置失败:%v", alert.UserId, err)
+//				err := dao.UpdateMonitorStatus(alert.Id, 2)
+//				if err != nil {
+//					return
+//				} //标记为失败
+//				return
+//			}
+//
+//			var sendSuccess bool
+//			subject := "【告警】"
+//			switch alert.AlertType {
+//			case 1: //邮箱
+//				sendSuccess, err = alert2.SendEmailAlert(config.Email, subject, alert.Content)
+//			case 2: //钉钉
+//				sendSuccess, err = alert2.SendDingTalkAlert(fmt.Sprint("监控告警"), alert.Content)
+//			default:
+//				err = errors.New("不支持的告警方式")
+//				sendSuccess = false
+//			}
+//
+//			// 更新告警状态
+//			if sendSuccess && err == nil {
+//				dao.UpdateAlertStatus(alert.Id, 1) //发送成功
+//			} else {
+//				dao.UpdateAlertStatus(alert.Id, 2) //发送失败
+//				fmt.Printf("告警%d发送失败：:%v\n", alert.UserId, err)
+//			}
+//		}(alert)
+//	}
+//	wg.Wait()
+//}
 
 // 更新用户告警配置
 func UpdateAlertConfig(config *model.AlertConfig) error {
@@ -183,5 +183,29 @@ func GetAlertList(userId int64, page, size int, keyword string, alertSubType, st
 	if size < 1 || size > 100 {
 		size = 10
 	}
-	return dao.GetAlertListByUserId(userId, page, size, keyword, alertSubType, status)
+
+	// 兼容新告警体系：从 alert_send_task + monitor 聚合查询，并映射为旧的 model.Alert 结构
+	rows, total, err := dao.GetAlertListRowsByUserId(userId, page, size, keyword, alertSubType, status)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	alerts := make([]*model.Alert, 0, len(rows))
+	for _, r := range rows {
+		// 将 send_task 映射为旧 alert 记录（仅用于列表展示）
+		a := &model.Alert{
+			Id:           r.Id,
+			MonitorId:    r.MonitorId,
+			UserId:       userId,
+			AlertType:    r.AlertType,
+			AlertSubType: r.AlertSubType,
+			Status:       r.Status,
+			Content:      r.Content,
+			SendTime:     r.SendTime,
+			CreateTime:   r.CreateTime,
+			UpdateTime:   r.CreateTime,
+		}
+		alerts = append(alerts, a)
+	}
+	return alerts, total, nil
 }

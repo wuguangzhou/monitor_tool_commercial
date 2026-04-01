@@ -179,40 +179,74 @@ func RunMonitorOnce(monitorId int64, fromOneHand bool) error {
 	monitor.Status = newStatus
 	monitor.ErrorMsg = errMsg
 
-	// 宕机时触发告警：仅在状态从非宕机(!=2) -> 宕机(2) 的“第一次切换”时触发
-	// 避免定时任务在持续宕机期间反复覆盖告警记录，导致列表一直显示最新的“未发送”告警
-	if newStatus == 2 {
-		fmt.Printf("监控项ID=%d宕机，首次进入宕机状态，触发告警\n", monitorId)
-		go func() {
-			alertErr := CreateAlert(monitor)
-			if alertErr != nil {
-				fmt.Printf("触发告警失败%v\n", alertErr)
-			}
-			//触发告警成功就立即发送告警，而非等待定时任务
-			SendUnsentAlert()
-			//手动一次即可发送告警
-			if fromOneHand {
-				SendUnsentAlert()
-			}
-		}()
+	// 6.1 读取用户告警渠道（与旧逻辑一致：无配置则跳过落库/发送，避免写脏任务）
+	alertType := 0
+	if cfg, err := dao.GetAlertConfigByUserId(monitor.UserId); err == nil {
+		if cfg.IsEnabled == 0 {
+			alertType = 0
+		} else {
+			alertType = cfg.AlertType
+		}
 	}
 
-	// 恢复通知
-	if newStatus == 1 && monitor.LastStatus == 2 {
-		fmt.Printf("监控项ID=%d从宕机恢复，触发恢复通知\n", monitorId)
-		go func() {
-			recoveryErr := CreateRecoveryAlert(monitor)
-			if recoveryErr != nil {
-				fmt.Printf("触发恢复通知失败%v\n", recoveryErr)
-			}
-			//触发恢复通知成功就立即发送告警，而非等待定时任务
-			SendUnsentAlert()
-			//手动一次即可发送告警
-			if fromOneHand {
-				SendUnsentAlert()
-			}
-		}()
+	// 6.2 FSM：isDown = (newStatus==2)
+	now := time.Now()
+	events, fsmErr := EvaluateAlertFsm(monitor, newStatus == 2, errMsg, now)
+	if fsmErr != nil {
+		fmt.Printf("[FSM] monitor=%d EvaluateAlertFsm err: %v\n", monitor.Id, fsmErr)
 	}
+	// 调试日志（上线后可删或改为 debug 级别）
+	for _, ev := range events {
+		fmt.Printf("[FSM] monitor=%d event=%s seq=%d at=%s err=%q\n",
+			ev.MonitorId, ev.Type, ev.IncidentSeq, ev.At.Format(time.RFC3339), ev.ErrMsg)
+	}
+
+	// 6.3 有配置才落库（避免 alertType==0 仍建 send_task）
+	if alertType != 0 && len(events) > 0 {
+		if err := ApplyAlertFsmEvents(monitor, alertType, events); err != nil {
+			fmt.Printf("[ApplyAlertFsmEvents] monitor=%d err: %v\n", monitor.Id, err)
+		}
+	}
+
+	// 6.4 尝试发送 pending 任务（claim + 发送）
+	if alertType != 0 {
+		SendPendingAlertTask()
+	}
+
+	// 宕机时触发告警：仅在状态从非宕机(!=2) -> 宕机(2) 的“第一次切换”时触发
+	// 避免定时任务在持续宕机期间反复覆盖告警记录，导致列表一直显示最新的“未发送”告警
+	//if newStatus == 2 {
+	//	fmt.Printf("监控项ID=%d宕机，首次进入宕机状态，触发告警\n", monitorId)
+	//	go func() {
+	//		alertErr := CreateAlert(monitor)
+	//		if alertErr != nil {
+	//			fmt.Printf("触发告警失败%v\n", alertErr)
+	//		}
+	//		//触发告警成功就立即发送告警，而非等待定时任务
+	//		SendUnsentAlert()
+	//		//手动一次即可发送告警
+	//		if fromOneHand {
+	//			SendUnsentAlert()
+	//		}
+	//	}()
+	//}
+
+	// 恢复通知
+	//if newStatus == 1 && monitor.LastStatus == 2 {
+	//	fmt.Printf("监控项ID=%d从宕机恢复，触发恢复通知\n", monitorId)
+	//	go func() {
+	//		recoveryErr := CreateRecoveryAlert(monitor)
+	//		if recoveryErr != nil {
+	//			fmt.Printf("触发恢复通知失败%v\n", recoveryErr)
+	//		}
+	//		//触发恢复通知成功就立即发送告警，而非等待定时任务
+	//		SendUnsentAlert()
+	//		//手动一次即可发送告警
+	//		if fromOneHand {
+	//			SendUnsentAlert()
+	//		}
+	//	}()
+	//}
 
 	fmt.Printf("监控项ID=%d检测完成，新状态=%d,历史记录插入成功\n", monitorId, newStatus)
 	return nil

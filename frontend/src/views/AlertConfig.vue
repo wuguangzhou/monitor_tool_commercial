@@ -26,6 +26,32 @@
             <el-radio label="2">钉钉告警</el-radio>
           </el-radio-group>
         </el-form-item>
+
+        <!-- 钉钉配置：仅当选择钉钉告警时展示 -->
+        <template v-if="Number(alertConfigForm.alertType) === 2">
+          <el-form-item label="钉钉Webhook" prop="dingtalkWebhook">
+            <el-input
+              v-model="alertConfigForm.dingtalkWebhook"
+              placeholder="https://oapi.dingtalk.com/robot/send?access_token=xxx"
+            />
+            <div class="text-gray-500 text-sm mt-1">
+              钉钉群机器人 Webhook 地址
+            </div>
+          </el-form-item>
+          <el-form-item label="钉钉加签Secret" prop="dingtalkSecret">
+            <el-input
+              v-model="alertConfigForm.dingtalkSecret"
+              placeholder="可选：开启加签时填写（SEC...）"
+              show-password
+            />
+          </el-form-item>
+          <el-form-item label="钉钉关键词" prop="dingtalkKeyword">
+            <el-input
+              v-model="alertConfigForm.dingtalkKeyword"
+              placeholder="可选：群安全设置要求的关键词"
+            />
+          </el-form-item>
+        </template>
         <el-form-item label="告警开关" prop="isEnabled">
           <el-switch
             v-model="alertConfigForm.isEnabled"
@@ -63,6 +89,9 @@ const alertConfigForm = reactive({
   email: '',
   alertType: '1',
   isEnabled: '1',
+  dingtalkWebhook: '',
+  dingtalkSecret: '',
+  dingtalkKeyword: '',
 })
 
 // 表单校验规则
@@ -81,6 +110,17 @@ const alertConfigRules = reactive({
   isEnabled: [
     { required: true, message: '请选择告警开关状态', trigger: 'change' },
   ],
+  dingtalkWebhook: [
+    {
+      validator: (rule, value, callback) => {
+        if (Number(alertConfigForm.alertType) !== 2) return callback()
+        if (!value || !value.trim()) return callback(new Error('请输入钉钉Webhook'))
+        if (!/^https?:\/\/.+/.test(value.trim())) return callback(new Error('请输入有效的Webhook URL'))
+        callback()
+      },
+      trigger: 'blur',
+    },
+  ],
 })
 
 // 获取告警配置
@@ -89,8 +129,36 @@ const getAlertConfigData = async () => {
     const res = await getAlertConfig()
     if (res.data) {
       alertConfigForm.email = res.data.email || ''
-      alertConfigForm.alertType = res.data.alertType.toString() || '1'
-      alertConfigForm.isEnabled = res.data.isEnabled.toString() || '1'
+      // 后端返回字段多为 snake_case（alert_type/is_enabled），旧版本前端可能用 camelCase（alertType/isEnabled）
+      const alertTypeVal = res.data.alert_type ?? res.data.alertType ?? 1
+      const isEnabledVal = res.data.is_enabled ?? res.data.isEnabled ?? 1
+
+      alertConfigForm.alertType = String(alertTypeVal || 1)
+      alertConfigForm.isEnabled = String(isEnabledVal || 1)
+
+      // 后端可能因字段命名/历史版本导致返回 key 存在差异，这里做兼容兜底：
+      // 优先使用期望 key（dingtalk_*），如果不存在再尝试其它常见变体。
+      const dtWebhook =
+        res.data.dingtalk_webhook ??
+        res.data.ding_talk_webhook ??
+        res.data.dingtalkWebhook ??
+        ''
+
+      const dtSecret =
+        res.data.dingtalk_secret ??
+        res.data.ding_talk_secret ??
+        res.data.dingtalkSecret ??
+        ''
+
+      const dtKeyword =
+        res.data.dingtalk_keyword ??
+        res.data.ding_talk_keyword ??
+        res.data.dingtalkKeyword ??
+        ''
+
+      alertConfigForm.dingtalkWebhook = dtWebhook || ''
+      alertConfigForm.dingtalkSecret = dtSecret || ''
+      alertConfigForm.dingtalkKeyword = dtKeyword || ''
     }
   } catch (error) {
     // 无配置时不报错
@@ -108,6 +176,9 @@ const submitAlertConfig = async () => {
       email: alertConfigForm.email,
       alert_type: parseInt(alertConfigForm.alertType),
       is_enabled: parseInt(alertConfigForm.isEnabled),
+      dingtalk_webhook: alertConfigForm.dingtalkWebhook,
+      dingtalk_secret: alertConfigForm.dingtalkSecret,
+      dingtalk_keyword: alertConfigForm.dingtalkKeyword,
     }
     await updateAlertConfig(submitData)
     ElMessage.success('告警配置保存成功')

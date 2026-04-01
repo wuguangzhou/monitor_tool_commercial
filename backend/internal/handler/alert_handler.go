@@ -37,6 +37,11 @@ func UpdateAlertConfigHandler(c *gin.Context) {
 		Email     string `json:"email" binding:"required"`
 		AlertType int    `json:"alert_type" binding:"required"`
 		IsEnable  int    `json:"is_enabled" binding:"required"`
+
+		// 钉钉配置（当 alert_type=2 时由前端传入）
+		DingTalkWebhook string `json:"dingtalk_webhook"`
+		DingTalkSecret  string `json:"dingtalk_secret"`
+		DingTalkKeyword string `json:"dingtalk_keyword"`
 	}
 	var param AlertConfigParam
 	if err := c.ShouldBindJSON(&param); err != nil {
@@ -50,10 +55,13 @@ func UpdateAlertConfigHandler(c *gin.Context) {
 
 	//构建配置模型
 	config := &model.AlertConfig{
-		UserId:    userId,
-		Email:     param.Email,
-		AlertType: param.AlertType,
-		IsEnabled: param.IsEnable,
+		UserId:          userId,
+		Email:           param.Email,
+		AlertType:       param.AlertType,
+		IsEnabled:       param.IsEnable,
+		DingTalkWebhook: param.DingTalkWebhook,
+		DingTalkSecret:  param.DingTalkSecret,
+		DingTalkKeyword: param.DingTalkKeyword,
 	}
 
 	err := service.UpdateAlertConfig(config)
@@ -167,7 +175,8 @@ func GetAlertListHandler(c *gin.Context) {
 		}
 	}
 
-	alerts, total, err := service.GetAlertList(userId, page, size, keyword, alertSubType, status)
+	// 告警列表兼容新体系：直接从 alert_send_task JOIN monitor 查询，并映射为前端期望字段
+	rows, total, err := dao.GetAlertListRowsByUserId(userId, page, size, keyword, alertSubType, status)
 	if err != nil {
 		c.JSON(http.StatusOK, Response{
 			Code: 400,
@@ -190,27 +199,21 @@ func GetAlertListHandler(c *gin.Context) {
 		CreatedAt    string    `json:"createdAt"`
 	}
 
-	alertViews := make([]*AlertView, 0, len(alerts))
-	for _, a := range alerts {
-		monitorName := ""
-		if a.MonitorId != 0 {
-			if m, err := dao.GetMonitorById(a.MonitorId, userId); err == nil && m != nil {
-				monitorName = m.Name
-			}
-		}
+	alertViews := make([]*AlertView, 0, len(rows))
+	for _, r := range rows {
 		createdStr := ""
-		if !a.CreateTime.IsZero() {
-			createdStr = a.CreateTime.Format("2006-01-02 15:04:05")
+		if !r.CreateTime.IsZero() {
+			createdStr = r.CreateTime.Format("2006-01-02 15:04:05")
 		}
 		alertViews = append(alertViews, &AlertView{
-			Id:           a.Id,
-			MonitorId:    a.MonitorId,
-			MonitorName:  monitorName,
-			AlertType:    a.AlertType,
-			AlertSubType: a.AlertSubType,
-			Status:       a.Status,
-			Content:      a.Content,
-			SendTime:     a.SendTime,
+			Id:           r.Id,
+			MonitorId:    r.MonitorId,
+			MonitorName:  r.MonitorName,
+			AlertType:    r.AlertType,
+			AlertSubType: r.AlertSubType,
+			Status:       r.Status,
+			Content:      r.Content,
+			SendTime:     r.SendTime,
 			CreatedAt:    createdStr,
 		})
 	}
